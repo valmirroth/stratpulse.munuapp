@@ -1,0 +1,2003 @@
+openapi: 3.0.3
+info:
+  title: ManuInd API
+  description: |
+    API REST do sistema de gestão de manutenção industrial **ManuInd**.
+
+    ## Autenticação
+    A API usa **JWT Bearer Token**. Para autenticar:
+    1. Execute `POST /api/auth/login` com e-mail e senha
+    2. Copie o campo `token` da resposta
+    3. Clique em **Authorize** e cole o token
+
+    ## Credenciais padrão
+    - **E-mail:** `admin@manuind.com`
+    - **Senha:** `Admin@123`
+
+    ## Perfis de acesso
+    | Perfil | Código | Descrição |
+    |--------|--------|-----------|
+    | Administrador | `admin` | Acesso total ao sistema |
+    | Gerente | `manager` | Aprova horas, gerencia OSs |
+    | Manutentor | `maintainer` | Lança horas, visualiza OSs |
+  version: 1.0.0
+  contact:
+    name: ManuInd
+    url: https://github.com/valmirroth/stratpulse.munuapp
+
+servers:
+  - url: http://localhost:8080
+    description: Servidor de desenvolvimento
+
+tags:
+  - name: Autenticação
+    description: Login, perfil e troca de senha
+  - name: Dashboard
+    description: KPIs e estatísticas em tempo real
+  - name: Usuários
+    description: Gestão de usuários e perfis de acesso
+  - name: Ativos
+    description: Cadastro hierárquico de objetos de manutenção (árvore)
+  - name: Plano de Contas
+    description: Estrutura de contas gerenciais (árvore)
+  - name: Manutentores
+    description: Cadastro de profissionais de manutenção
+  - name: Planos de Manutenção
+    description: Planos preventivos com frequência e tarefas
+  - name: Ordens de Serviço
+    description: Ordens de serviço com fluxo de status
+  - name: Lançamento de Horas
+    description: Registro e aprovação de horas trabalhadas
+
+security:
+  - bearerAuth: []
+
+paths:
+
+  # ─────────────────────────────────────────────
+  # AUTENTICAÇÃO
+  # ─────────────────────────────────────────────
+
+  /api/auth/login:
+    post:
+      tags: [Autenticação]
+      summary: Login
+      description: Autentica o usuário e retorna um JWT Bearer Token válido por 24 horas.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: admin@manuind.com
+              password: Admin@123
+      responses:
+        '200':
+          description: Login bem-sucedido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/auth/me:
+    get:
+      tags: [Autenticação]
+      summary: Perfil do usuário autenticado
+      description: Retorna os dados do usuário associado ao token JWT atual.
+      responses:
+        '200':
+          description: Dados do usuário
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/auth/password:
+    put:
+      tags: [Autenticação]
+      summary: Alterar senha
+      description: Altera a senha do usuário autenticado. Requer informar a senha atual.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Senha alterada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ─────────────────────────────────────────────
+  # DASHBOARD
+  # ─────────────────────────────────────────────
+
+  /api/dashboard/stats:
+    get:
+      tags: [Dashboard]
+      summary: Estatísticas do dashboard
+      description: |
+        Retorna todos os KPIs do dashboard em uma única requisição:
+        - Contagem de OSs por status (aberta, em andamento, concluída, cancelada)
+        - Estatísticas de horas (aprovadas, pendentes, rejeitadas)
+        - Total de ativos ativos e manutentores ativos
+        - Top 5 manutentores por horas aprovadas
+        - Horas aprovadas por mês (últimos 6 meses)
+        - 8 ordens de serviço mais recentes
+      responses:
+        '200':
+          description: Estatísticas do sistema
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardStats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ─────────────────────────────────────────────
+  # USUÁRIOS
+  # ─────────────────────────────────────────────
+
+  /api/users:
+    get:
+      tags: [Usuários]
+      summary: Listar usuários
+      description: Retorna todos os usuários cadastrados no sistema.
+      responses:
+        '200':
+          description: Lista de usuários
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Usuários]
+      summary: Criar usuário
+      description: Cria um novo usuário. Requer perfil `admin`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+            example:
+              name: João Silva
+              email: joao.silva@empresa.com
+              password: Senha@123
+              role: maintainer
+      responses:
+        '201':
+          description: Usuário criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      tags: [Usuários]
+      summary: Buscar usuário por ID
+      responses:
+        '200':
+          description: Dados do usuário
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Usuários]
+      summary: Atualizar usuário
+      description: Atualiza nome, e-mail, perfil e status ativo do usuário. Requer perfil `admin`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: Usuário atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Usuários]
+      summary: Remover usuário
+      description: Remove o usuário do sistema. Requer perfil `admin`.
+      responses:
+        '200':
+          description: Usuário removido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ─────────────────────────────────────────────
+  # ATIVOS
+  # ─────────────────────────────────────────────
+
+  /api/assets:
+    get:
+      tags: [Ativos]
+      summary: Listar ativos em árvore
+      description: |
+        Retorna a árvore completa de ativos com hierarquia aninhada (children).
+        Os nós raiz (sem parent_id) estão no nível 1. Suporta até 15 níveis de profundidade.
+      responses:
+        '200':
+          description: Árvore de ativos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Asset'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Ativos]
+      summary: Criar ativo
+      description: |
+        Cria um novo ativo. Para criar um nó raiz, omita `parent_id`.
+        Para criar um filho, informe o `parent_id` do ativo pai.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAssetRequest'
+            examples:
+              raiz:
+                summary: Criar planta (nó raiz)
+                value:
+                  code: PLT-001
+                  name: Planta Principal
+                  description: Unidade industrial principal
+                  type: plant
+              filho:
+                summary: Criar área dentro de uma planta
+                value:
+                  parent_id: 1
+                  code: ARE-001
+                  name: Área de Produção
+                  description: Linha de produção A
+                  type: area
+      responses:
+        '201':
+          description: Ativo criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/assets/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      tags: [Ativos]
+      summary: Buscar ativo por ID
+      responses:
+        '200':
+          description: Dados do ativo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Ativos]
+      summary: Atualizar ativo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAssetRequest'
+      responses:
+        '200':
+          description: Ativo atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Ativos]
+      summary: Remover ativo
+      description: Remove (desativa) o ativo. Ativos com filhos ou OSs vinculadas podem ser bloqueados.
+      responses:
+        '200':
+          description: Ativo removido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ─────────────────────────────────────────────
+  # PLANO DE CONTAS
+  # ─────────────────────────────────────────────
+
+  /api/accounts:
+    get:
+      tags: [Plano de Contas]
+      summary: Listar contas em árvore
+      description: Retorna a árvore completa do plano de contas gerencial com hierarquia aninhada.
+      responses:
+        '200':
+          description: Árvore do plano de contas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Plano de Contas]
+      summary: Criar conta
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountRequest'
+            example:
+              parent_id: 1
+              code: "3.1.1"
+              name: Manutenção Preventiva
+              type: analytical
+              nature: debit
+      responses:
+        '201':
+          description: Conta criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/accounts/flat:
+    get:
+      tags: [Plano de Contas]
+      summary: Listar contas (lista plana)
+      description: Retorna todas as contas em lista plana (sem aninhamento). Útil para selects e dropdowns.
+      responses:
+        '200':
+          description: Lista plana de contas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Account'
+
+  /api/accounts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      tags: [Plano de Contas]
+      summary: Buscar conta por ID
+      responses:
+        '200':
+          description: Dados da conta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Plano de Contas]
+      summary: Atualizar conta
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAccountRequest'
+      responses:
+        '200':
+          description: Conta atualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Plano de Contas]
+      summary: Remover conta
+      responses:
+        '200':
+          description: Conta removida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ─────────────────────────────────────────────
+  # MANUTENTORES
+  # ─────────────────────────────────────────────
+
+  /api/maintainers:
+    get:
+      tags: [Manutentores]
+      summary: Listar manutentores
+      responses:
+        '200':
+          description: Lista de manutentores
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Maintainer'
+    post:
+      tags: [Manutentores]
+      summary: Criar manutentor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMaintainerRequest'
+            example:
+              name: Carlos Oliveira
+              registration: MANUT-001
+              specialty: Eletricista Industrial
+              phone: "(11) 99999-0001"
+              email: carlos@empresa.com
+              hourly_rate: 85.00
+      responses:
+        '201':
+          description: Manutentor criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Maintainer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/maintainers/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      tags: [Manutentores]
+      summary: Buscar manutentor por ID
+      responses:
+        '200':
+          description: Dados do manutentor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Maintainer'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Manutentores]
+      summary: Atualizar manutentor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMaintainerRequest'
+      responses:
+        '200':
+          description: Manutentor atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Maintainer'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Manutentores]
+      summary: Remover manutentor
+      responses:
+        '200':
+          description: Manutentor removido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ─────────────────────────────────────────────
+  # PLANOS DE MANUTENÇÃO
+  # ─────────────────────────────────────────────
+
+  /api/maintenance-plans:
+    get:
+      tags: [Planos de Manutenção]
+      summary: Listar planos de manutenção
+      description: Retorna todos os planos com suas tarefas incluídas.
+      responses:
+        '200':
+          description: Lista de planos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MaintenancePlan'
+    post:
+      tags: [Planos de Manutenção]
+      summary: Criar plano de manutenção
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMaintenancePlanRequest'
+            example:
+              asset_id: 3
+              account_id: 5
+              code: PMP-001
+              name: Inspeção Mensal — Bomba Centrífuga
+              description: Inspeção e lubrificação mensal da bomba
+              frequency_type: monthly
+              frequency_value: 1
+              estimated_hours: 2.0
+              priority: high
+      responses:
+        '201':
+          description: Plano criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenancePlan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/maintenance-plans/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      tags: [Planos de Manutenção]
+      summary: Buscar plano por ID
+      responses:
+        '200':
+          description: Dados do plano
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenancePlan'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Planos de Manutenção]
+      summary: Atualizar plano
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMaintenancePlanRequest'
+      responses:
+        '200':
+          description: Plano atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenancePlan'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Planos de Manutenção]
+      summary: Remover plano
+      responses:
+        '200':
+          description: Plano removido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/maintenance-plans/{id}/tasks:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      tags: [Planos de Manutenção]
+      summary: Listar tarefas do plano
+      responses:
+        '200':
+          description: Lista de tarefas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MaintenancePlanTask'
+    post:
+      tags: [Planos de Manutenção]
+      summary: Adicionar tarefa ao plano
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+            example:
+              sequence: 1
+              description: Verificar nível de óleo lubrificante
+              estimated_minutes: 15
+      responses:
+        '201':
+          description: Tarefa adicionada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenancePlanTask'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/maintenance-plans/{id}/tasks/{taskId}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+        description: ID da tarefa
+    put:
+      tags: [Planos de Manutenção]
+      summary: Atualizar tarefa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+      responses:
+        '200':
+          description: Tarefa atualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenancePlanTask'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Planos de Manutenção]
+      summary: Remover tarefa
+      responses:
+        '200':
+          description: Tarefa removida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ─────────────────────────────────────────────
+  # ORDENS DE SERVIÇO
+  # ─────────────────────────────────────────────
+
+  /api/work-orders:
+    get:
+      tags: [Ordens de Serviço]
+      summary: Listar ordens de serviço
+      description: |
+        Lista todas as OSs com suporte a filtros por query string.
+
+        **Fluxo de status válido:**
+        ```
+        open  →  in_progress  →  completed
+                             →  cancelled
+        ```
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/WorkOrderStatus'
+          description: Filtrar por status
+        - name: type
+          in: query
+          schema:
+            $ref: '#/components/schemas/WorkOrderType'
+          description: Filtrar por tipo
+        - name: priority
+          in: query
+          schema:
+            $ref: '#/components/schemas/Priority'
+          description: Filtrar por prioridade
+      responses:
+        '200':
+          description: Lista de ordens de serviço
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkOrder'
+    post:
+      tags: [Ordens de Serviço]
+      summary: Criar ordem de serviço
+      description: |
+        Cria uma nova OS. O código é gerado automaticamente no formato `OS-YYYYMMDD-HHMMSS`.
+        A OS é criada com status `open`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkOrderRequest'
+            example:
+              asset_id: 5
+              type: corrective
+              priority: high
+              description: Substituição do rolamento danificado da bomba centrífuga B-01
+              estimated_hours: 4.0
+      responses:
+        '201':
+          description: OS criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrder'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/work-orders/stats:
+    get:
+      tags: [Ordens de Serviço]
+      summary: Estatísticas de OSs por status
+      description: Retorna contagens agrupadas por status.
+      responses:
+        '200':
+          description: Contagens por status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrderStats'
+
+  /api/work-orders/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      tags: [Ordens de Serviço]
+      summary: Buscar OS por ID
+      description: Retorna a OS com lista de manutentores atribuídos.
+      responses:
+        '200':
+          description: Dados da OS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrder'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Ordens de Serviço]
+      summary: Atualizar OS
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWorkOrderRequest'
+      responses:
+        '200':
+          description: OS atualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrder'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Ordens de Serviço]
+      summary: Remover OS
+      responses:
+        '200':
+          description: OS removida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/work-orders/{id}/status:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    put:
+      tags: [Ordens de Serviço]
+      summary: Atualizar status da OS
+      description: |
+        Muda o status da OS respeitando o fluxo válido:
+        - `open` → `in_progress` ou `cancelled`
+        - `in_progress` → `completed` ou `cancelled`
+
+        Transições inválidas retornam erro 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWorkOrderStatusRequest'
+            examples:
+              iniciar:
+                summary: Iniciar OS
+                value:
+                  status: in_progress
+                  observations: Iniciado por Carlos às 08:00
+              concluir:
+                summary: Concluir OS
+                value:
+                  status: completed
+                  observations: Rolamento substituído, bomba testada e aprovada
+              cancelar:
+                summary: Cancelar OS
+                value:
+                  status: cancelled
+                  observations: Equipamento fora de operação por manutenção maior
+      responses:
+        '200':
+          description: Status atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/work-orders/{id}/maintainers:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      tags: [Ordens de Serviço]
+      summary: Atribuir manutentor à OS
+      description: Vincula um manutentor à ordem de serviço. A mesma atribuição duplicada é ignorada.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignMaintainerRequest'
+            example:
+              maintainer_id: 2
+      responses:
+        '200':
+          description: Manutentor atribuído
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/work-orders/{id}/maintainers/{maintainerId}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+      - name: maintainerId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+        description: ID do manutentor
+    delete:
+      tags: [Ordens de Serviço]
+      summary: Remover manutentor da OS
+      responses:
+        '200':
+          description: Manutentor removido da OS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/work-orders/{id}/time-entries:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      tags: [Ordens de Serviço]
+      summary: Listar lançamentos de horas da OS
+      description: Retorna todos os lançamentos de horas vinculados a esta ordem de serviço.
+      responses:
+        '200':
+          description: Lista de lançamentos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TimeEntry'
+
+  # ─────────────────────────────────────────────
+  # LANÇAMENTO DE HORAS
+  # ─────────────────────────────────────────────
+
+  /api/time-entries:
+    get:
+      tags: [Lançamento de Horas]
+      summary: Listar lançamentos de horas
+      description: |
+        Lista todos os lançamentos de horas com suporte a filtro por status.
+
+        **Workflow de aprovação:**
+        ```
+        pending  →  approved
+                 →  rejected
+        ```
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/TimeEntryStatus'
+          description: Filtrar por status (pending, approved, rejected)
+        - name: work_order_id
+          in: query
+          schema:
+            type: integer
+          description: Filtrar por OS
+      responses:
+        '200':
+          description: Lista de lançamentos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TimeEntry'
+    post:
+      tags: [Lançamento de Horas]
+      summary: Criar lançamento de horas
+      description: |
+        Registra um lançamento de horas para uma OS. As horas são calculadas automaticamente
+        a partir da diferença entre `end_time` e `start_time`.
+        O lançamento é criado com status `pending`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTimeEntryRequest'
+            example:
+              work_order_id: 1
+              maintainer_id: 2
+              start_time: "2025-01-15T08:00:00Z"
+              end_time: "2025-01-15T12:30:00Z"
+              description: Substituição do rolamento e lubrificação geral
+      responses:
+        '201':
+          description: Lançamento criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeEntry'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/time-entries/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      tags: [Lançamento de Horas]
+      summary: Buscar lançamento por ID
+      responses:
+        '200':
+          description: Dados do lançamento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeEntry'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Lançamento de Horas]
+      summary: Atualizar lançamento
+      description: Permite editar data/hora e descrição. Lançamentos aprovados não podem ser editados.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTimeEntryRequest'
+      responses:
+        '200':
+          description: Lançamento atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeEntry'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Lançamento de Horas]
+      summary: Remover lançamento
+      description: Remove o lançamento. Lançamentos aprovados não podem ser removidos.
+      responses:
+        '200':
+          description: Lançamento removido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/time-entries/{id}/approve:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    put:
+      tags: [Lançamento de Horas]
+      summary: Aprovar lançamento
+      description: |
+        Aprova o lançamento de horas. Requer perfil `admin` ou `manager`.
+
+        **Efeito colateral:** A OS vinculada é movida automaticamente para `in_progress`
+        se ainda estiver com status `open`.
+      responses:
+        '200':
+          description: Lançamento aprovado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/time-entries/{id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    put:
+      tags: [Lançamento de Horas]
+      summary: Rejeitar lançamento
+      description: Rejeita o lançamento de horas. Requer perfil `admin` ou `manager`.
+      responses:
+        '200':
+          description: Lançamento rejeitado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+# ─────────────────────────────────────────────────────────
+# COMPONENTS
+# ─────────────────────────────────────────────────────────
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token JWT obtido em `POST /api/auth/login`
+
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+      description: ID do recurso
+
+  responses:
+    BadRequest:
+      description: Requisição inválida
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: dados inválidos
+    Unauthorized:
+      description: Token ausente ou inválido
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: token inválido ou expirado
+    NotFound:
+      description: Recurso não encontrado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: registro não encontrado
+    InternalError:
+      description: Erro interno do servidor
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+
+    # ── Enums ──────────────────────────────────────
+
+    UserRole:
+      type: string
+      enum: [admin, manager, maintainer]
+      description: |
+        - `admin` — Administrador: acesso total
+        - `manager` — Gerente: aprova horas, gerencia OSs
+        - `maintainer` — Manutentor: lança horas
+
+    AssetType:
+      type: string
+      enum: [plant, area, system, subsystem, equipment, component]
+      description: Tipo do ativo na hierarquia
+
+    AccountType:
+      type: string
+      enum: [synthetic, analytical]
+      description: |
+        - `synthetic` — Conta sintética (agrupadora, não recebe lançamentos)
+        - `analytical` — Conta analítica (recebe lançamentos de custo)
+
+    AccountNature:
+      type: string
+      enum: [debit, credit]
+
+    FrequencyType:
+      type: string
+      enum: [daily, weekly, monthly, hours]
+      description: |
+        - `daily` — Diário
+        - `weekly` — Semanal
+        - `monthly` — Mensal
+        - `hours` — Por horas de operação
+
+    Priority:
+      type: string
+      enum: [low, medium, high, critical]
+
+    WorkOrderType:
+      type: string
+      enum: [preventive, corrective, predictive]
+
+    WorkOrderStatus:
+      type: string
+      enum: [open, in_progress, completed, cancelled]
+      description: |
+        Fluxo válido: `open` → `in_progress` → `completed` / `cancelled`
+
+    TimeEntryStatus:
+      type: string
+      enum: [pending, approved, rejected]
+
+    # ── Utilitários ────────────────────────────────
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: mensagem de erro
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: operação realizada com sucesso
+
+    # ── Autenticação ───────────────────────────────
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: admin@manuind.com
+        password:
+          type: string
+          format: password
+          example: Admin@123
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT Bearer Token (válido por 24h)
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        user:
+          $ref: '#/components/schemas/User'
+
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          format: password
+        new_password:
+          type: string
+          format: password
+          minLength: 6
+
+    # ── Usuário ────────────────────────────────────
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/UserRole'
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateUserRequest:
+      type: object
+      required: [name, email, password, role]
+      properties:
+        name:
+          type: string
+          example: João Silva
+        email:
+          type: string
+          format: email
+          example: joao@empresa.com
+        password:
+          type: string
+          format: password
+          minLength: 6
+        role:
+          $ref: '#/components/schemas/UserRole'
+
+    UpdateUserRequest:
+      type: object
+      required: [name, email, role]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/UserRole'
+        active:
+          type: boolean
+
+    # ── Ativo ──────────────────────────────────────
+
+    Asset:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        parent_id:
+          type: integer
+          format: int64
+          nullable: true
+        code:
+          type: string
+          example: EQP-001
+        name:
+          type: string
+          example: Bomba Centrífuga B-01
+        description:
+          type: string
+        type:
+          $ref: '#/components/schemas/AssetType'
+        level:
+          type: integer
+          minimum: 1
+          maximum: 15
+        active:
+          type: boolean
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/Asset'
+          description: Filhos na hierarquia (omitido se vazio)
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateAssetRequest:
+      type: object
+      required: [code, name, type]
+      properties:
+        parent_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: Omitir para criar nó raiz
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          $ref: '#/components/schemas/AssetType'
+
+    UpdateAssetRequest:
+      type: object
+      required: [code, name, type]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          $ref: '#/components/schemas/AssetType'
+        active:
+          type: boolean
+
+    # ── Conta ──────────────────────────────────────
+
+    Account:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        parent_id:
+          type: integer
+          format: int64
+          nullable: true
+        code:
+          type: string
+          example: "3.1"
+        name:
+          type: string
+          example: Custos de Manutenção
+        type:
+          $ref: '#/components/schemas/AccountType'
+        nature:
+          $ref: '#/components/schemas/AccountNature'
+        level:
+          type: integer
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/Account'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateAccountRequest:
+      type: object
+      required: [code, name, type, nature]
+      properties:
+        parent_id:
+          type: integer
+          format: int64
+          nullable: true
+        code:
+          type: string
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/AccountType'
+        nature:
+          $ref: '#/components/schemas/AccountNature'
+
+    UpdateAccountRequest:
+      type: object
+      required: [code, name, type, nature]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/AccountType'
+        nature:
+          $ref: '#/components/schemas/AccountNature'
+
+    # ── Manutentor ─────────────────────────────────
+
+    Maintainer:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: Vínculo opcional com usuário do sistema
+        name:
+          type: string
+        registration:
+          type: string
+          example: MANUT-001
+        specialty:
+          type: string
+          example: Eletricista Industrial
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        hourly_rate:
+          type: number
+          format: double
+          description: Taxa horária em reais
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateMaintainerRequest:
+      type: object
+      required: [name, registration, specialty]
+      properties:
+        user_id:
+          type: integer
+          format: int64
+          nullable: true
+        name:
+          type: string
+        registration:
+          type: string
+        specialty:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        hourly_rate:
+          type: number
+          format: double
+
+    UpdateMaintainerRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        registration:
+          type: string
+        specialty:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        hourly_rate:
+          type: number
+          format: double
+        active:
+          type: boolean
+
+    # ── Plano de Manutenção ────────────────────────
+
+    MaintenancePlanTask:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        plan_id:
+          type: integer
+          format: int64
+        sequence:
+          type: integer
+          description: Ordem de execução da tarefa
+        description:
+          type: string
+          example: Verificar nível de óleo lubrificante
+        estimated_minutes:
+          type: integer
+          description: Tempo estimado em minutos
+
+    MaintenancePlan:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        asset_id:
+          type: integer
+          format: int64
+        asset_name:
+          type: string
+        account_id:
+          type: integer
+          format: int64
+          nullable: true
+        code:
+          type: string
+          example: PMP-001
+        name:
+          type: string
+        description:
+          type: string
+        frequency_type:
+          $ref: '#/components/schemas/FrequencyType'
+        frequency_value:
+          type: integer
+          description: "Valor da frequência (ex: 1 = a cada 1 mês)"
+        estimated_hours:
+          type: number
+          format: double
+        priority:
+          $ref: '#/components/schemas/Priority'
+        active:
+          type: boolean
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenancePlanTask'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateMaintenancePlanRequest:
+      type: object
+      required: [asset_id, code, name, frequency_type, frequency_value, priority]
+      properties:
+        asset_id:
+          type: integer
+          format: int64
+        account_id:
+          type: integer
+          format: int64
+          nullable: true
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        frequency_type:
+          $ref: '#/components/schemas/FrequencyType'
+        frequency_value:
+          type: integer
+        estimated_hours:
+          type: number
+          format: double
+        priority:
+          $ref: '#/components/schemas/Priority'
+
+    UpdateMaintenancePlanRequest:
+      allOf:
+        - $ref: '#/components/schemas/CreateMaintenancePlanRequest'
+        - type: object
+          properties:
+            active:
+              type: boolean
+
+    CreateTaskRequest:
+      type: object
+      required: [sequence, description]
+      properties:
+        sequence:
+          type: integer
+        description:
+          type: string
+        estimated_minutes:
+          type: integer
+
+    # ── Ordem de Serviço ───────────────────────────
+
+    WorkOrder:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        code:
+          type: string
+          example: OS-20250115-143022
+          description: Código gerado automaticamente
+        asset_id:
+          type: integer
+          format: int64
+        asset_name:
+          type: string
+        plan_id:
+          type: integer
+          format: int64
+          nullable: true
+        account_id:
+          type: integer
+          format: int64
+          nullable: true
+        type:
+          $ref: '#/components/schemas/WorkOrderType'
+        priority:
+          $ref: '#/components/schemas/Priority'
+        status:
+          $ref: '#/components/schemas/WorkOrderStatus'
+        requested_date:
+          type: string
+          format: date-time
+        scheduled_date:
+          type: string
+          format: date-time
+          nullable: true
+        started_date:
+          type: string
+          format: date-time
+          nullable: true
+        completed_date:
+          type: string
+          format: date-time
+          nullable: true
+        description:
+          type: string
+        observations:
+          type: string
+        estimated_hours:
+          type: number
+          format: double
+        actual_hours:
+          type: number
+          format: double
+        total_cost:
+          type: number
+          format: double
+        created_by:
+          type: integer
+          format: int64
+        created_by_name:
+          type: string
+        maintainers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Maintainer'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateWorkOrderRequest:
+      type: object
+      required: [asset_id, type, priority, description]
+      properties:
+        asset_id:
+          type: integer
+          format: int64
+        plan_id:
+          type: integer
+          format: int64
+          nullable: true
+        account_id:
+          type: integer
+          format: int64
+          nullable: true
+        type:
+          $ref: '#/components/schemas/WorkOrderType'
+        priority:
+          $ref: '#/components/schemas/Priority'
+        scheduled_date:
+          type: string
+          format: date-time
+          nullable: true
+        description:
+          type: string
+        estimated_hours:
+          type: number
+          format: double
+
+    UpdateWorkOrderRequest:
+      type: object
+      properties:
+        asset_id:
+          type: integer
+          format: int64
+        plan_id:
+          type: integer
+          format: int64
+          nullable: true
+        account_id:
+          type: integer
+          format: int64
+          nullable: true
+        type:
+          $ref: '#/components/schemas/WorkOrderType'
+        priority:
+          $ref: '#/components/schemas/Priority'
+        status:
+          $ref: '#/components/schemas/WorkOrderStatus'
+        scheduled_date:
+          type: string
+          format: date-time
+          nullable: true
+        description:
+          type: string
+        observations:
+          type: string
+        estimated_hours:
+          type: number
+          format: double
+
+    UpdateWorkOrderStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/WorkOrderStatus'
+        observations:
+          type: string
+
+    AssignMaintainerRequest:
+      type: object
+      required: [maintainer_id]
+      properties:
+        maintainer_id:
+          type: integer
+          format: int64
+
+    WorkOrderStats:
+      type: object
+      properties:
+        open:
+          type: integer
+        in_progress:
+          type: integer
+        completed:
+          type: integer
+        cancelled:
+          type: integer
+        total:
+          type: integer
+
+    # ── Lançamento de Horas ────────────────────────
+
+    TimeEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        work_order_id:
+          type: integer
+          format: int64
+        work_order_code:
+          type: string
+        maintainer_id:
+          type: integer
+          format: int64
+        maintainer_name:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+          nullable: true
+        hours:
+          type: number
+          format: double
+          description: Calculado automaticamente (end_time - start_time)
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/TimeEntryStatus'
+        approved_by:
+          type: integer
+          format: int64
+          nullable: true
+        approved_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateTimeEntryRequest:
+      type: object
+      required: [work_order_id, maintainer_id, start_time]
+      properties:
+        work_order_id:
+          type: integer
+          format: int64
+        maintainer_id:
+          type: integer
+          format: int64
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+          nullable: true
+        description:
+          type: string
+
+    UpdateTimeEntryRequest:
+      type: object
+      properties:
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+          nullable: true
+        description:
+          type: string
+
+    # ── Dashboard ──────────────────────────────────
+
+    DashboardStats:
+      type: object
+      properties:
+        work_orders:
+          type: object
+          properties:
+            open:
+              type: integer
+            in_progress:
+              type: integer
+            completed:
+              type: integer
+            cancelled:
+              type: integer
+            total:
+              type: integer
+        time_entries:
+          type: object
+          properties:
+            pending:
+              type: integer
+            approved:
+              type: integer
+            rejected:
+              type: integer
+            total_hours:
+              type: number
+              format: double
+        assets_total:
+          type: integer
+          description: Total de ativos ativos
+        maintainers_active:
+          type: integer
+          description: Total de manutentores ativos
+        recent_orders:
+          type: array
+          description: 8 OSs mais recentes
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              code:
+                type: string
+              asset_name:
+                type: string
+              type:
+                type: string
+              priority:
+                type: string
+              status:
+                type: string
+              created_at:
+                type: string
+        top_maintainers:
+          type: array
+          description: Top 5 manutentores por horas aprovadas
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              hours:
+                type: number
+              orders:
+                type: integer
+        monthly_hours:
+          type: array
+          description: Horas aprovadas por mês (últimos 6 meses)
+          items:
+            type: object
+            properties:
+              month:
+                type: string
+                example: "2025-01"
+              hours:
+                type: number

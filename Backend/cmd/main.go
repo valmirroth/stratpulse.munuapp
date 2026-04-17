@@ -1,7 +1,9 @@
 package main
 
 import (
+	"embed"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 
@@ -16,6 +18,9 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 )
+
+//go:embed docs
+var docsFS embed.FS
 
 func main() {
 	cfg := config.Load()
@@ -65,6 +70,11 @@ func main() {
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: true,
 	}))
+
+	// ── Swagger UI (docs/) ────────────────────────────────────
+	docsContent, _ := fs.Sub(docsFS, "docs")
+	r.Handle("/docs", http.RedirectHandler("/docs/", http.StatusMovedPermanently))
+	r.Handle("/docs/*", http.StripPrefix("/docs/", http.FileServer(http.FS(docsContent))))
 
 	// ── Rotas públicas ────────────────────────────────────────
 	r.Post("/api/auth/login", authH.Login)
@@ -143,9 +153,10 @@ func main() {
 	})
 
 	addr := fmt.Sprintf(":%s", cfg.Port)
-	log.Printf("╔══════════════════════════════════════════╗")
-	log.Printf("║  ManuInd API — http://localhost%s       ║", addr)
-	log.Printf("╚══════════════════════════════════════════╝")
+	log.Printf("╔══════════════════════════════════════════════╗")
+	log.Printf("║  ManuInd API  →  http://localhost%s         ║", addr)
+	log.Printf("║  Swagger UI   →  http://localhost%s/docs    ║", addr)
+	log.Printf("╚══════════════════════════════════════════════╝")
 	if err := http.ListenAndServe(addr, r); err != nil {
 		log.Fatalf("Servidor falhou: %v", err)
 	}
